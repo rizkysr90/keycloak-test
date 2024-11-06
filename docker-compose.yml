@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  app:
+    image: golang:1.23-bookworm
+    restart: on-failure
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8081:8080/tcp"
+    env_file:
+      - .env
+    environment:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+      - GOFLAGS=-mod=vendor
+    depends_on:
+      redis:
+        condition: service_started
+    command: /bin/bash -c  "git config --global --add safe.directory /app && make build/app && ./build/app"
+
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: on-failure
+    environment:
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=redis_user
+      - REDIS_PASSWORD=redis_password
+      - REDIS_DB=0
+    volumes:
+      - redis-data:/data
+    command: redis-server --requirepass redis_password --user redis_user on >redis_password ~* &* +@all --port 6379 --bind 0.0.0.0 --save 60 1 --loglevel warning
+
+  redis-commander:
+    container_name: redis_commander
+    image: rediscommander/redis-commander:latest
+    ports:
+      - "8082:8081"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis_password
+      - REDIS_USERNAME=redis_user
+      # Using the format local-<label>:host:port:db:password
+      - REDIS_HOSTS=local-redis:redis:6379:0:redis_password
+      # Optional: customize Redis Commander settings
+      # - HTTP_USER=admin # Optional: set username for Redis Commander
+      # - HTTP_PASSWORD=password # Optional: set password for Redis Commander
+      # - READ_ONLY=false # Optional: set read-only mode
+      # - FOLDING_CHAR=: # Optional: character to split keys into folders
+      # - ROOT_PATTERN=* # Optional: pattern to filter keys
+      # - NO_LOG_DATA=false # Optional: disable logging of data values
+    depends_on:
+      redis:
+        condition: service_started
+
+volumes:
+  redis-data:

@@ -1,66 +1,83 @@
 package main
 
 import (
-	"authorization_flow_oauth/config"
-	"authorization_flow_oauth/internal/handler"
-	"authorization_flow_oauth/internal/utils"
+	"authorization_flow_oauth/internal/config"
+	"authorization_flow_oauth/pkg/authclient"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
-	"github.com/gorilla/sessions"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	config := config.Config{
-		KeycloakURL: "http://localhost:8080",          // Adjust this to your Keycloak server address
-		Realm:           "dev",                            // Your Keycloak realm name
-		ClientID:        "pos",                            // Your client ID in Keycloak
-		RedirectURL:     "http://localhost:8081/callback", // This should match a valid redirect URI in your Keycloak client settings
-		ClientSecret:    "YlLT3yNV7EyiTPYLuxcXs1fAiExKHNFx",
+
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("failed to load and parse config : %v", err)
+		return
 	}
+
 	// context
 	ctx := context.Background()
-	// In a production environment, use a secure key management system
-	// This is just for demonstration purposes
-	store := sessions.NewCookieStore([]byte("secret-key-replace-this-in-production"))
-	oidcClient, err  := utils.NewOIDCClient(ctx, &config)
-	if err != nil {
-        log.Fatalf("Failed to create OIDC client: %v", err)
+
+	// OAUTH
+	authOptions := []authclient.Option{
+		authclient.WithClientSecret(cfg.Auth.ClientSecret),
+		authclient.WithRealmKeycloak(cfg.Auth.Realm),
 	}
-	http.HandleFunc("/login-keycloak", oidcClient.HandleLogin)
-	http.HandleFunc("/", handler.HomeHandler)
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		handler.CallbackHandler(ctx, &config, w, r, store, oidcClient)
-	})
-	http.HandleFunc("/dashboard",func(w http.ResponseWriter, r *http.Request) {
-		session, err := store.Get(r, "auth-session")
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
+	authClient, err := authclient.New(
+		ctx,
+		cfg.Auth.BaseURL,
+		cfg.Auth.ClientID,
+		cfg.Auth.RedirectURL,
+		authOptions...,
+	)
+	log.Println(authClient)
+	if err != nil {
+		log.Fatalf("Failed to initialize auth client : %v", err)
+		return
+	}
+	// Redis
+	redisClient := redis.NewClient(&cfg.RedisConfig)
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Fatalf("failed to connect to Redis: %v", err)
+		return
+	}
+	defer redisClient.Close()
 
-    // Check if user is authenticated
-    email, ok := session.Values["user_email"].(string)
-    if !ok {
-        http.Redirect(w, r, "/login", http.StatusFound)
-        return
-    }
+	// http.HandleFunc("/login-keycloak", oidcClient.HandleLogin)
+	// http.HandleFunc("/", handler.HomeHandler)
+	// http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	// 	handler.CallbackHandler(ctx, &config, w, r, store, oidcClient)
+	// })
+	// http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	// 	session, err := store.Get(r, "auth-session")
+	// 	if err != nil {
+	// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 		return
+	// 	}
 
-    // Get additional user info if stored in session
-    name, _ := session.Values["user_name"].(string)
+	// 	// Check if user is authenticated
+	// 	email, ok := session.Values["user_email"].(string)
+	// 	if !ok {
+	// 		http.Redirect(w, r, "/login", http.StatusFound)
+	// 		return
+	// 	}
 
-    w.WriteHeader(http.StatusOK)
-    w.Header().Set("Content-Type", "application/json")
-    
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "status": "success",
-        "email": email,
-        "name": name,
-    })
-	})
+	// 	// Get additional user info if stored in session
+	// 	name, _ := session.Values["user_name"].(string)
+
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Header().Set("Content-Type", "application/json")
+
+	// 	json.NewEncoder(w).Encode(map[string]interface{}{
+	// 		"status": "success",
+	// 		"email":  email,
+	// 		"name":   name,
+	// 	})
+	// })
 
 	fmt.Println("Server is starting on port 8081...")
 	err = http.ListenAndServe(":8081", nil)
