@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 
 	"authorization_flow_oauth/internal/config"
-	"authorization_flow_oauth/internal/handler/login"
+	"authorization_flow_oauth/internal/handler/authhandler"
 	"authorization_flow_oauth/pkg/auth"
 
 	"github.com/gin-gonic/gin"
@@ -15,21 +14,19 @@ import (
 )
 
 func main() {
-
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("failed to load and parse config : %v", err)
 		return
 	}
+	serverAddr := fmt.Sprintf("%s:%s", cfg.AppHost, cfg.AppPort)
 	// context
 	ctx := context.Background()
 
-	// OAUTH
 	authOptions := []auth.Option{
 		auth.WithClientSecret(cfg.Auth.ClientSecret),
 		auth.WithRealmKeycloak(cfg.Auth.Realm),
 	}
-	log.Println("HEREEE : ", cfg.Auth)
 	authClient, err := auth.New(
 		ctx,
 		cfg.Auth.BaseURL,
@@ -37,7 +34,6 @@ func main() {
 		cfg.Auth.RedirectURL,
 		authOptions...,
 	)
-	log.Println(authClient)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth client : %v", err)
 		return
@@ -50,29 +46,16 @@ func main() {
 	}
 	defer redisClient.Close()
 	r := gin.Default()
-	// Middleware to inject the base context
-	r.Use(func(c *gin.Context) {
-		// Attach the base context to the request
-		c.Request = c.Request.WithContext(ctx)
-		c.Next()
-	})
 	// Load HTML templates from internal/templates
 	// Using relative path from where you run the application
 	r.LoadHTMLGlob("../internal/templates/*/*.tmpl")
-	r.GET("/login", login.Index)
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "pong",
-		})
-	})
-	r.GET("/login-keycloak", func(c *gin.Context) {
-		// login.WithKeycloak(c, authClient)
-		c.Redirect(http.StatusFound, authClient.Oauth.AuthCodeURL("sadasad"))
 
-	})
-	// Modify the Run call to be more explicit
-	serverAddr := fmt.Sprintf("%s:%s", "0.0.0.0", cfg.Port)
-	log.Printf("Server starting on %s", serverAddr)
+	// Auth handler
+	authHandler := authhandler.New(cfg, serverAddr, authClient, redisClient)
+	r.GET("/login", authHandler.RenderLoginPage)
+	r.GET("/login-keycloak", authHandler.RedirectToKeycloak)
+	r.GET("/callback-auth", authHandler.Callback)
+
 	if err := r.Run(serverAddr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
