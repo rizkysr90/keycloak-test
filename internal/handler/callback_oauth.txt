@@ -1,0 +1,132 @@
+// package handler
+
+// import (
+// 	"authorization_flow_oauth/config"
+// 	"authorization_flow_oauth/internal/utils"
+// 	"context"
+// 	"encoding/base64"
+// 	"encoding/json"
+// 	"fmt"
+// 	"net/http"
+// 	"strings"
+
+// 	"github.com/gorilla/sessions"
+// 	"golang.org/x/oauth2"
+// )
+
+// func CallbackHandler(
+// 	ctx context.Context,
+// 	config *config.Config,
+// 	w http.ResponseWriter,
+// 	r *http.Request,
+// 	store *sessions.CookieStore,
+// 	oidcClient *utils.OIDCClient,
+// 	) {
+// 	session, err := store.Get(r, "auth-session")
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	// Retrieve state from session
+// 	sessionState, ok := session.Values["state"].(string)
+// 	if !ok {
+// 		http.Error(w, "Invalid session state", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	// Retrieve state from URL parameters
+// 	urlState := r.URL.Query().Get("state")
+// 	// Compare states
+// 	if sessionState != urlState {
+// 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+// 		return
+// 	}
+// 	// Clear the used state from the session
+// 	delete(session.Values, "state")
+// 	err = session.Save(r, w)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	// This is where you would make a request to Keycloak to exchange the authorization code for tokens
+// 	// Extract the authorization code from the query parameters
+// 	code := r.URL.Query().Get("code")
+// 	if code == "" {
+// 		http.Error(w, "No code found", http.StatusBadRequest)
+// 		return
+// 	}
+// 	// Add code_verifier to token exchange
+//     opts := []oauth2.AuthCodeOption{
+//         oauth2.SetAuthURLParam("code_verifier", oidcClient.CodeVerifier),
+//     }
+// 	oauth2Token, err := oidcClient.Oauth2Config.Exchange(ctx, code, opts...)
+// 	if err != nil {
+// 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	oidcClient.CodeVerifier = ""
+// 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+// 	if !ok {
+// 		http.Error(w, "No id_token in token response", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	idToken, err := oidcClient.Verifier.Verify(ctx, rawIDToken)
+// 	if err != nil {
+// 		http.Error(w, "Failed to verify ID token", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	// Get user info
+// 	var claims struct {
+// 		Email    string `json:"email"`
+// 		Verified bool   `json:"email_verified"`
+// 		Name     string `json:"name"`
+// 	}
+// 	if err := idToken.Claims(&claims); err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	// Store user info and tokens in session
+// 	session.Values["user_email"] = claims.Email
+// 	session.Values["user_name"] = claims.Name
+// 	session.Values["access_token"] = oauth2Token.AccessToken
+// 	session.Values["id_token"] = rawIDToken
+
+// 	if err := session.Save(r, w); err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	// Redirect to home page or dashboard
+// 	http.Redirect(w, r, "/dashboard", http.StatusFound)
+// }
+// // TokenHeader represents the JWT header structure
+// type TokenHeader struct {
+// 	Kid string `json:"kid"`
+// 	Alg string `json:"alg"`
+// }
+// // ExtractKid safely extracts the 'kid' from a JWT token header
+// func ExtractKid(tokenString string) (string, error) {
+// 	// Split the token into parts
+// 	parts := strings.Split(tokenString, ".")
+// 	if len(parts) != 3 {
+// 		return "", fmt.Errorf("invalid token format")
+// 	}
+
+// 	// Decode the header part
+// 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+// 	if err != nil {
+// 		return "", fmt.Errorf("failed to decode token header: %w", err)
+// 	}
+
+// 	// Parse the header
+// 	var header TokenHeader
+// 	if err := json.Unmarshal(headerBytes, &header); err != nil {
+// 		return "", fmt.Errorf("failed to parse token header: %w", err)
+// 	}
+
+// 	if header.Kid == "" {
+// 		return "", fmt.Errorf("no 'kid' found in token header")
+// 	}
+
+// 	return header.Kid, nil
+// }

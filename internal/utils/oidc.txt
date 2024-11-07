@@ -1,0 +1,94 @@
+package utils
+
+import (
+	"authorization_flow_oauth/config"
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/gorilla/sessions"
+	"golang.org/x/oauth2"
+)
+
+type OIDCClient struct {
+	Provider     *oidc.Provider
+	Verifier     *oidc.IDTokenVerifier
+	Oauth2Config oauth2.Config
+	Store        sessions.Store
+	CodeVerifier string
+}
+
+func NewOIDCClient(ctx context.Context, config *config.Config) (*OIDCClient, error) {
+	// Construct the provider URL using Keycloak realm
+	providerURL := fmt.Sprintf("%s/realms/%s", config.KeycloakURL, config.Realm)
+
+	provider, err := oidc.NewProvider(ctx, providerURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider: %v", err)
+	}
+
+	// Configure an OpenID Connect aware OAuth2 client
+	oauth2Config := oauth2.Config{
+		ClientID:     config.ClientID,
+		ClientSecret: config.ClientSecret,
+		RedirectURL:  config.RedirectURL,
+		Endpoint:     provider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID},
+	}
+
+	// Create ID token verifier
+	verifier := provider.Verifier(&oidc.Config{ClientID: config.ClientID})
+	// Session
+	store := sessions.NewCookieStore([]byte("secret-key-replace-this-in-production"))
+	store.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7, // 7 days
+		HttpOnly: true,
+		Secure:   true, // Set to false for development over HTTP
+		SameSite: http.SameSiteLaxMode,
+	}
+	return &OIDCClient{
+		Provider:     provider,
+		Verifier:     verifier,
+		Oauth2Config: oauth2Config,
+		Store:        store,
+	}, nil
+}
+
+func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	// Get or create a session
+	session, err := c.Store.Get(r, "auth-session")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	c.CodeVerifier, err = GenerateCodeVerifier()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	codeChallenge := GenerateCodeChallenge(c.CodeVerifier)
+	// Generate and store random state
+	state, err := GenerateState()
+	if err != nil {
+		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
+		return
+	}
+
+	// Store state in session
+	session.Values["state"] = state
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Add PKCE parameters to auth URL
+	opts := []oauth2.AuthCodeOption{
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	}
+
+	// Redirect to Keycloak login
+	http.Redirect(w, r, c.Oauth2Config.AuthCodeURL(state, opts...), http.StatusFound)
+}

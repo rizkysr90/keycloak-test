@@ -1,13 +1,16 @@
 package main
 
 import (
-	"authorization_flow_oauth/internal/config"
-	"authorization_flow_oauth/pkg/authclient"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 
+	"authorization_flow_oauth/internal/config"
+	"authorization_flow_oauth/internal/handler/login"
+	"authorization_flow_oauth/pkg/auth"
+
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,16 +21,16 @@ func main() {
 		log.Fatalf("failed to load and parse config : %v", err)
 		return
 	}
-
 	// context
 	ctx := context.Background()
 
 	// OAUTH
-	authOptions := []authclient.Option{
-		authclient.WithClientSecret(cfg.Auth.ClientSecret),
-		authclient.WithRealmKeycloak(cfg.Auth.Realm),
+	authOptions := []auth.Option{
+		auth.WithClientSecret(cfg.Auth.ClientSecret),
+		auth.WithRealmKeycloak(cfg.Auth.Realm),
 	}
-	authClient, err := authclient.New(
+	log.Println("HEREEE : ", cfg.Auth)
+	authClient, err := auth.New(
 		ctx,
 		cfg.Auth.BaseURL,
 		cfg.Auth.ClientID,
@@ -46,42 +49,31 @@ func main() {
 		return
 	}
 	defer redisClient.Close()
+	r := gin.Default()
+	// Middleware to inject the base context
+	r.Use(func(c *gin.Context) {
+		// Attach the base context to the request
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	// Load HTML templates from internal/templates
+	// Using relative path from where you run the application
+	r.LoadHTMLGlob("../internal/templates/*/*.tmpl")
+	r.GET("/login", login.Index)
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"message": "pong",
+		})
+	})
+	r.GET("/login-keycloak", func(c *gin.Context) {
+		// login.WithKeycloak(c, authClient)
+		c.Redirect(http.StatusFound, authClient.Oauth.AuthCodeURL("sadasad"))
 
-	// http.HandleFunc("/login-keycloak", oidcClient.HandleLogin)
-	// http.HandleFunc("/", handler.HomeHandler)
-	// http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-	// 	handler.CallbackHandler(ctx, &config, w, r, store, oidcClient)
-	// })
-	// http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
-	// 	session, err := store.Get(r, "auth-session")
-	// 	if err != nil {
-	// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	// Check if user is authenticated
-	// 	email, ok := session.Values["user_email"].(string)
-	// 	if !ok {
-	// 		http.Redirect(w, r, "/login", http.StatusFound)
-	// 		return
-	// 	}
-
-	// 	// Get additional user info if stored in session
-	// 	name, _ := session.Values["user_name"].(string)
-
-	// 	w.WriteHeader(http.StatusOK)
-	// 	w.Header().Set("Content-Type", "application/json")
-
-	// 	json.NewEncoder(w).Encode(map[string]interface{}{
-	// 		"status": "success",
-	// 		"email":  email,
-	// 		"name":   name,
-	// 	})
-	// })
-
-	fmt.Println("Server is starting on port 8081...")
-	err = http.ListenAndServe(":8081", nil)
-	if err != nil {
-		fmt.Println("Error starting server:", err)
+	})
+	// Modify the Run call to be more explicit
+	serverAddr := fmt.Sprintf("%s:%s", "0.0.0.0", cfg.Port)
+	log.Printf("Server starting on %s", serverAddr)
+	if err := r.Run(serverAddr); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }

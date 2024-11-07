@@ -1,24 +1,27 @@
 version: "3.8"
 
 services:
-  app:
-    image: golang:1.23-bookworm
-    restart: on-failure
-    working_dir: /app
-    volumes:
-      - .:/app
-    ports:
-      - "8081:8080/tcp"
-    env_file:
-      - .env
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.5
+    container_name: keycloak
     environment:
-      - CGO_ENABLED=0
-      - GO111MODULE=on
-      - GOFLAGS=-mod=vendor
-    depends_on:
-      redis:
-        condition: service_started
-    command: /bin/bash -c  "git config --global --add safe.directory /app && make build/app && ./build/app"
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_DB=dev-file
+      # Add these for production readiness
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HTTP_ENABLED=true
+      - KC_PROXY=edge
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      # Optional: Add themes volume if you have custom themes
+      - keycloak_themes:/opt/keycloak/themes
+      # Optional: Add providers volume if you have custom providers
+      - keycloak_providers:/opt/keycloak/providers
+    ports:
+      - "9000:8080"
+    command: start-dev
 
   redis:
     container_name: redis
@@ -45,18 +48,16 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=redis_password
       - REDIS_USERNAME=redis_user
-      # Using the format local-<label>:host:port:db:password
       - REDIS_HOSTS=local-redis:redis:6379:0:redis_password
-      # Optional: customize Redis Commander settings
-      # - HTTP_USER=admin # Optional: set username for Redis Commander
-      # - HTTP_PASSWORD=password # Optional: set password for Redis Commander
-      # - READ_ONLY=false # Optional: set read-only mode
-      # - FOLDING_CHAR=: # Optional: character to split keys into folders
-      # - ROOT_PATTERN=* # Optional: pattern to filter keys
-      # - NO_LOG_DATA=false # Optional: disable logging of data values
     depends_on:
       redis:
         condition: service_started
 
 volumes:
   redis-data:
+  keycloak_data:
+    name: keycloak_data
+  keycloak_themes:
+    name: keycloak_themes
+  keycloak_providers:
+    name: keycloak_providers
