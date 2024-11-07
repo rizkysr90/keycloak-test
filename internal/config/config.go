@@ -16,7 +16,8 @@ import (
 type Config struct {
 	Auth        auth.Config
 	RedisConfig redis.Options
-	Port        string
+	AppPort     string
+	AppHost     string
 }
 
 func LoadFromEnv() (*Config, error) {
@@ -52,6 +53,7 @@ func LoadFromEnv() (*Config, error) {
 			Password: os.Getenv("REDIS_PASSWORD"),
 			DB:       redisDB,
 		},
-		Port: os.Getenv("APP_PORT"),
+		AppPort: os.Getenv("APP_PORT"),
+		AppHost: os.Getenv("APP_HOST"),
 	}, nil
 }
