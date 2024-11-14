@@ -7,6 +7,7 @@ import (
 
 	"authorization_flow_oauth/internal/config"
 	"authorization_flow_oauth/internal/handler/authhandler"
+	rds "authorization_flow_oauth/internal/store/redis"
 	"authorization_flow_oauth/pkg/auth"
 
 	"github.com/gin-gonic/gin"
@@ -51,7 +52,8 @@ func main() {
 	r.LoadHTMLGlob("../internal/templates/*/*.tmpl")
 
 	// Auth handler
-	authHandler := authhandler.New(cfg, serverAddr, authClient, redisClient)
+	authStore := rds.NewAuthRedisManager(&rds.Config{RedisClient: redisClient})
+	authHandler := authhandler.New(cfg, serverAddr, authClient, authStore)
 	r.GET("/login", authHandler.RenderLoginPage)
 	r.GET("/login-keycloak", authHandler.RedirectToKeycloak)
 	r.GET("/callback-auth", authHandler.Callback)

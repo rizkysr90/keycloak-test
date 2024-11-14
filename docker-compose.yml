@@ -1,28 +1,6 @@
 version: "3.8"
 
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0.5
-    container_name: keycloak
-    environment:
-      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
-      - KC_DB=dev-file
-      # Add these for production readiness
-      - KC_HOSTNAME_STRICT=false
-      - KC_HOSTNAME_STRICT_HTTPS=false
-      - KC_HTTP_ENABLED=true
-      - KC_PROXY=edge
-    volumes:
-      - keycloak_data:/opt/keycloak/data
-      # Optional: Add themes volume if you have custom themes
-      - keycloak_themes:/opt/keycloak/themes
-      # Optional: Add providers volume if you have custom providers
-      - keycloak_providers:/opt/keycloak/providers
-    ports:
-      - "9000:8080"
-    command: start-dev
-
   redis:
     container_name: redis
     image: redis:7-alpine
@@ -37,27 +15,5 @@ services:
     volumes:
       - redis-data:/data
     command: redis-server --requirepass redis_password --user redis_user on >redis_password ~* &* +@all --port 6379 --bind 0.0.0.0 --save 60 1 --loglevel warning
-
-  redis-commander:
-    container_name: redis_commander
-    image: rediscommander/redis-commander:latest
-    ports:
-      - "8082:8081"
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=redis_password
-      - REDIS_USERNAME=redis_user
-      - REDIS_HOSTS=local-redis:redis:6379:0:redis_password
-    depends_on:
-      redis:
-        condition: service_started
-
 volumes:
   redis-data:
-  keycloak_data:
-    name: keycloak_data
-  keycloak_themes:
-    name: keycloak_themes
-  keycloak_providers:
-    name: keycloak_providers
