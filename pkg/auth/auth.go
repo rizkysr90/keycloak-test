@@ -10,7 +10,7 @@ import (
 
 type Client struct {
 	Provider *oidc.Provider
-	Verifier *oidc.IDTokenVerifier
+	OIDC     *oidc.IDTokenVerifier
 	Oauth    oauth2.Config
 	// CodeVerifier string
 	// State        string
@@ -59,7 +59,7 @@ func New(ctx context.Context,
 	}
 	return &Client{
 		Oauth:    oauth2,
-		Verifier: verifier,
+		OIDC:     verifier,
 		Provider: provider,
 	}, nil
 }
