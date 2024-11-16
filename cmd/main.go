@@ -6,7 +6,9 @@ import (
 	"log"
 
 	"authorization_flow_oauth/internal/config"
-	"authorization_flow_oauth/internal/handler/authhandler"
+	authhandler "authorization_flow_oauth/internal/handler/auth"
+	"authorization_flow_oauth/internal/handler/render"
+	"authorization_flow_oauth/internal/middleware"
 	rds "authorization_flow_oauth/internal/store/redis"
 	"authorization_flow_oauth/pkg/auth"
 
@@ -51,14 +53,28 @@ func main() {
 	// Using relative path from where you run the application
 	r.LoadHTMLGlob("../internal/templates/*/*.tmpl")
 
-	// Auth handler
-	authStore := rds.NewAuthRedisManager(&rds.Config{RedisClient: redisClient})
-	authHandler := authhandler.New(cfg, serverAddr, authClient, authStore)
+	authStore := rds.NewAuthRedisManager(redisClient)
+	sessionStore := rds.NewSessionRedisManager(redisClient)
+	authHandler := authhandler.New(cfg,
+		serverAddr,
+		authClient,
+		authStore,
+		sessionStore,
+	)
+	renderHandler := render.New(cfg)
 	r.GET("/login", authHandler.RenderLoginPage)
 	r.GET("/login-keycloak", authHandler.RedirectToKeycloak)
 	r.GET("/callback-auth", authHandler.Callback)
 
+	// Protected routes
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware())
+	{
+		protected.GET("/success-login", renderHandler.SuccessLogin)
+		// Add other protected routes here
+	}
 	if err := r.Run(serverAddr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+
 }
