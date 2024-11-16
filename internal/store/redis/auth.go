@@ -8,32 +8,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Config contains configuration for RedisAuthManager
-type Config struct {
-	RedisClient *redis.Client
-	PrefixState string
-	DefaultTTL  time.Duration
-}
 type RedisAuthManager struct {
 	client      *redis.Client
 	PrefixState string
 	defaultTTL  time.Duration
 }
 
-func NewAuthRedisManager(config *Config) *RedisAuthManager {
-	if config.PrefixState == "" {
-		config.PrefixState = "st"
-	}
-	if config.DefaultTTL == 0 {
-		config.DefaultTTL = 5 * time.Minute
-	}
+func NewAuthRedisManager(rds *redis.Client) *RedisAuthManager {
 	return &RedisAuthManager{
-		client:      config.RedisClient,
-		PrefixState: config.PrefixState,
-		defaultTTL:  config.DefaultTTL,
+		client:      rds,
+		PrefixState: "st",
+		defaultTTL:  5 * time.Minute,
 	}
 }
-
 func (r *RedisAuthManager) buildKeyState(state string) string {
 	return fmt.Sprintf("%s:%s", r.PrefixState, state)
 }

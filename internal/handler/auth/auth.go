@@ -12,10 +12,11 @@ import (
 )
 
 type AuthHandler struct {
-	cfg        *config.Config
-	serverAddr string
-	authClient *auth.Client
-	authStore  store.AuthStore
+	cfg          *config.Config
+	serverAddr   string
+	authClient   *auth.Client
+	authStore    store.AuthStore
+	sessionStore store.SessionStore
 }
 
 func New(
@@ -23,22 +24,24 @@ func New(
 	serverAddr string,
 	authClient *auth.Client,
 	authStore store.AuthStore,
+	sessionStore store.SessionStore,
 ) *AuthHandler {
 	return &AuthHandler{
-		cfg:        cfg,
-		serverAddr: serverAddr,
-		authClient: authClient,
-		authStore:  authStore,
+		cfg:          cfg,
+		serverAddr:   serverAddr,
+		authClient:   authClient,
+		authStore:    authStore,
+		sessionStore: sessionStore,
 	}
 }
 
 func (a *AuthHandler) RedirectToKeycloak(c *gin.Context) {
 	stateID, err := utils.GenerateRandomBase64Str()
 	if err != nil {
-		c.Error(utils.ErrorBuilder("failed to generate redirect state : ", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 	if err = a.authStore.SetState(c, stateID); err != nil {
-		c.Error(utils.ErrorBuilder("failed to save stateIDKey in redis : ", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 	c.Redirect(http.StatusFound, a.authClient.Oauth.AuthCodeURL(stateID))
 }

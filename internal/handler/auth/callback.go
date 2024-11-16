@@ -3,7 +3,6 @@ package authhandler
 import (
 	"authorization_flow_oauth/internal/store"
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -17,6 +16,7 @@ func (a *AuthHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 	if err = callbackData.verify(c, a.authStore); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -32,6 +32,7 @@ func (a *AuthHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 	var oidcToken *oidcToken
 	oidcToken, err = newOIDCToken(oauth2Token, a.authClient.OIDC)
@@ -39,6 +40,7 @@ func (a *AuthHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 	var userInfoClaims *userInfoClaims
 	userInfoClaims, err = oidcToken.getClaims(c)
@@ -46,15 +48,52 @@ func (a *AuthHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
-	log.Println(oauth2Token.AccessToken)
-	c.JSON(http.StatusOK, gin.H{
-		"status":        "ok",
-		"access_token":  oauth2Token.AccessToken,
-		"refresh_token": oauth2Token.RefreshToken,
-		"user_info":     userInfoClaims,
-	})
-	// a.authClient.OIDC.Verify(c, oauth2Toke)
+	sessionData := store.SessionData{
+		AccessToken:  oauth2Token.AccessToken,
+		RefreshToken: oauth2Token.RefreshToken,
+		UserInfoData: &store.UserInfoData{
+			Email:    userInfoClaims.Email,
+			FullName: userInfoClaims.Name,
+		},
+	}
+	if err = a.sessionStore.SaveSession(c, userInfoClaims.Sub, &sessionData); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	// Set session cookie
+	// Parameters:
+	// 1. name: cookie name
+	// 2. value: cookie value (userID/session ID)
+	// 3. maxAge: cookie duration in seconds
+	// 4. path: cookie path
+	// 5. domain: cookie domain
+	// 6. secure: only send cookie over HTTPS
+	// 7. httpOnly: prevent JavaScript access to cookie
+	c.SetCookie(
+		"session_id",       // name
+		userInfoClaims.Sub, // value (user ID)
+		3600,               // maxAge (1 hour)
+		"/",                // path
+		"",                 // domain
+		true,               // secure
+		true,               // httpOnly
+	)
+
+	// Optionally set additional cookies if needed
+	c.SetCookie(
+		"user_email",
+		userInfoClaims.Email,
+		3600,
+		"/",
+		"",
+		true,
+		true,
+	)
+	c.Redirect(http.StatusTemporaryRedirect, "/success-login")
 }
 
 type callbackData struct {
@@ -113,6 +152,7 @@ func newOIDCToken(oauthToken *oauth2.Token,
 type userInfoClaims struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
+	Sub   string `json:"sub"`
 }
 
 // Get raw ID token
