@@ -68,7 +68,7 @@ func main() {
 
 	// Protected routes
 	protected := r.Group("/")
-	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuthMiddleware(sessionStore, authClient))
 	{
 		protected.GET("/success-login", renderHandler.SuccessLogin)
 		// Add other protected routes here

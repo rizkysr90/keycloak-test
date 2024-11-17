@@ -55,7 +55,7 @@ func New(ctx context.Context,
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  config.RedirectURL,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID},
+		Scopes:       []string{oidc.ScopeOpenID, "roles"},
 	}
 	return &Client{
 		Oauth:    oauth2,
