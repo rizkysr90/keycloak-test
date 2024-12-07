@@ -1,35 +1,80 @@
 package main
 
 import (
-	"authorization_flow_oauth/config"
-	"authorization_flow_oauth/internal/handler"
+	"context"
 	"fmt"
-	"net/http"
+	"log"
 
-	"github.com/gorilla/sessions"
+	"authorization_flow_oauth/internal/config"
+	authhandler "authorization_flow_oauth/internal/handler/auth"
+	"authorization_flow_oauth/internal/handler/render"
+	"authorization_flow_oauth/internal/middleware"
+	rds "authorization_flow_oauth/internal/store/redis"
+	"authorization_flow_oauth/pkg/auth"
+
+	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	config := config.Config{
-		KeycloakBaseURL: "http://localhost:8080",          // Adjust this to your Keycloak server address
-		Realm:           "dev",                            // Your Keycloak realm name
-		ClientID:        "pos",                            // Your client ID in Keycloak
-		RedirectURI:     "http://localhost:8081/callback", // This should match a valid redirect URI in your Keycloak client settings
-		ClientSecret:    "YlLT3yNV7EyiTPYLuxcXs1fAiExKHNFx",
-	}
-	// In a production environment, use a secure key management system
-	// This is just for demonstration purposes
-	store := sessions.NewCookieStore([]byte("secret-key-replace-this-in-production"))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		handler.HomeHandler(&config, w, r, store)
-	})
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		handler.CallbackHandler(&config, w, r, store)
-	})
-
-	fmt.Println("Server is starting on port 8081...")
-	err := http.ListenAndServe(":8081", nil)
+	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		fmt.Println("Error starting server:", err)
+		log.Fatalf("failed to load and parse config : %v", err)
+		return
 	}
+	serverAddr := fmt.Sprintf("%s:%s", cfg.AppHost, cfg.AppPort)
+	// context
+	ctx := context.Background()
+
+	authOptions := []auth.Option{
+		auth.WithClientSecret(cfg.Auth.ClientSecret),
+		auth.WithRealmKeycloak(cfg.Auth.Realm),
+	}
+	authClient, err := auth.New(
+		ctx,
+		cfg.Auth.BaseURL,
+		cfg.Auth.ClientID,
+		cfg.Auth.RedirectURL,
+		authOptions...,
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize auth client : %v", err)
+		return
+	}
+	// Redis
+	redisClient := redis.NewClient(&cfg.RedisConfig)
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Fatalf("failed to connect to Redis: %v", err)
+		return
+	}
+	defer redisClient.Close()
+	r := gin.Default()
+	// Load HTML templates from internal/templates
+	// Using relative path from where you run the application
+	r.LoadHTMLGlob("../internal/templates/*/*.tmpl")
+
+	authStore := rds.NewAuthRedisManager(redisClient)
+	sessionStore := rds.NewSessionRedisManager(redisClient)
+	authHandler := authhandler.New(cfg,
+		serverAddr,
+		authClient,
+		authStore,
+		sessionStore,
+	)
+	renderHandler := render.New(cfg)
+	r.GET("/login", authHandler.RenderLoginPage)
+	r.GET("/login-keycloak", authHandler.RedirectToKeycloak)
+	r.GET("/callback-auth", authHandler.Callback)
+
+	// Protected routes
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware(sessionStore, authClient))
+	{
+		protected.GET("/success-login", renderHandler.SuccessLogin)
+		// Add other protected routes here
+	}
+	if err := r.Run(serverAddr); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
+
 }
